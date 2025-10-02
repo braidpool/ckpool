@@ -38,6 +38,12 @@
 static const char *workpadding = "000000800000000000000000000000000000000000000000000000000000000000000000000000000000000080020000";
 static const char *scriptsig_header = "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff";
 static uchar scriptsig_header_bin[41];
+
+#define SHARE_HEADER_LEN 80
+#define SHARE_SUFFIX_LEN 7
+#define SHARE_PREIMAGE_LEN (SHARE_HEADER_LEN + SHARE_SUFFIX_LEN)
+/* cpunet testnet tweak: append "cpunet\0" to the block header before hashing */
+static const uchar share_suffix[SHARE_SUFFIX_LEN] = { 'c', 'p', 'u', 'n', 'e', 't', '\0' };
 static const double nonces = 4294967296;
 
 /* Add unaccounted shares when they arrive, remove them with each update of
@@ -1898,7 +1904,7 @@ share_diff(char *coinbase, const uchar *enonce1bin, const workbase_t *wb, const 
 	unsigned char merkle_root[32], merkle_sha[64];
 	uint32_t *data32, *swap32, benonce32;
 	uchar hash1[32];
-	char data[80];
+	char data[SHARE_PREIMAGE_LEN];
 	int i;
 
 	memcpy(coinbase, wb->coinb1bin, wb->coinb1len);
@@ -1945,7 +1951,8 @@ share_diff(char *coinbase, const uchar *enonce1bin, const workbase_t *wb, const 
 	data32 = (uint32_t *)data;
 	swap32 = (uint32_t *)swap;
 	flip_80(swap32, data32);
-	sha256(swap, 80, hash1);
+	memcpy(swap + SHARE_HEADER_LEN, share_suffix, SHARE_SUFFIX_LEN);
+	sha256(swap, SHARE_PREIMAGE_LEN, hash1);
 	sha256(hash1, 32, hash);
 
 	/* Calculate the diff of the share here */
@@ -2157,7 +2164,7 @@ static void submit_node_block(ckpool_t *ckp, sdata_t *sdata, json_t *val)
 {
 	char *coinbase = NULL, *enonce1 = NULL, *nonce = NULL, *nonce2 = NULL, *gbt_block,
 		*coinbasehex, *swaphex;
-	uchar *enonce1bin = NULL, hash[32], swap[80], flip32[32];
+	uchar *enonce1bin = NULL, hash[32], swap[SHARE_PREIMAGE_LEN], flip32[32];
 	uint32_t ntime32, version_mask = 0;
 	char blockhash[68], cdfield[64];
 	int enonce1len, cblen;
@@ -2219,7 +2226,8 @@ static void submit_node_block(ckpool_t *ckp, sdata_t *sdata, json_t *val)
 		coinbase = alloca(cblen);
 		hex2bin(coinbase, coinbasehex, cblen);
 		hex2bin(swap, swaphex, 80);
-		sha256(swap, 80, hash1);
+		memcpy(swap + SHARE_HEADER_LEN, share_suffix, SHARE_SUFFIX_LEN);
+		sha256(swap, SHARE_PREIMAGE_LEN, hash1);
 		sha256(hash1, 32, hash);
 	} else {
 		/* Rebuild the old way if we can if the upstream pool is using
@@ -5842,8 +5850,8 @@ static double submission_diff(sdata_t *sdata, const stratum_instance_t *client, 
 {
 	unsigned char merkle_root[32], merkle_sha[64];
 	uint32_t *data32, *swap32, benonce32;
-	char *coinbase, data[80];
-	uchar swap[80], hash1[32];
+	char *coinbase, data[SHARE_PREIMAGE_LEN];
+	uchar swap[SHARE_PREIMAGE_LEN], hash1[32];
 	int cblen, i, cb2len;
 	uchar *coinb2bin;
 	double ret;
@@ -5901,7 +5909,8 @@ static double submission_diff(sdata_t *sdata, const stratum_instance_t *client, 
 	data32 = (uint32_t *)data;
 	swap32 = (uint32_t *)swap;
 	flip_80(swap32, data32);
-	sha256(swap, 80, hash1);
+	memcpy(swap + SHARE_HEADER_LEN, share_suffix, SHARE_SUFFIX_LEN);
+	sha256(swap, SHARE_PREIMAGE_LEN, hash1);
 	sha256(hash1, 32, hash);
 
 	/* Calculate the diff of the share here */
@@ -7126,14 +7135,15 @@ static void parse_remote_block(ckpool_t *ckp, sdata_t *sdata, json_t *val, const
 	if (unlikely(!wb))
 		LOGWARNING("Inadequate data locally to attempt submit of remote block");
 	else {
-		uchar swap[80], hash[32], hash1[32], flip32[32];
+		uchar swap[SHARE_PREIMAGE_LEN], hash[32], hash1[32], flip32[32];
 		char *coinbase = alloca(cblen), *gbt_block;
 		char blockhash[68];
 
 		LOGWARNING("Possible remote block solve diff %lf !", diff);
 		hex2bin(coinbase, coinbasehex, cblen);
 		hex2bin(swap, swaphex, 80);
-		sha256(swap, 80, hash1);
+		memcpy(swap + SHARE_HEADER_LEN, share_suffix, SHARE_SUFFIX_LEN);
+		sha256(swap, SHARE_PREIMAGE_LEN, hash1);
 		sha256(hash1, 32, hash);
 		gbt_block = process_block(wb, coinbase, cblen, swap, hash, flip32, blockhash);
 		/* Note nodes use jobid of the mapped_id instead of workinfoid */
